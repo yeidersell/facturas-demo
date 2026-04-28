@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node --input-type=module)",
+      "Bash(timeout 5 node server.js)"
+    ]
+  }
+}
