@@ -1,5 +1,6 @@
 import makeWASocket, {
   DisconnectReason,
+  Browsers,
   useMultiFileAuthState,
   downloadMediaMessage,
 } from '@whiskeysockets/baileys'
@@ -45,6 +46,10 @@ export async function initWhatsApp(broadcastSSE) {
   const sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
+    browser: Browsers.ubuntu('Chrome'),
+    printQRInTerminal: true,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
   })
   currentSock = sock
 
@@ -66,12 +71,12 @@ export async function initWhatsApp(broadcastSSE) {
       const statusCode = err?.output?.statusCode ?? err?.code ?? null
       const isLoggedOut = statusCode === DisconnectReason.loggedOut
 
-      console.log(`[WA] Conexión cerrada. Código: ${statusCode} | Nunca conectado: ${!everConnected}`)
+      console.log(`[WA] Conexión cerrada. Código: ${statusCode} | Conectado antes: ${everConnected}`)
 
-      // Clear stale/partial auth if we got a bad session code OR never connected
-      // Status 405 = WhatsApp rejected the session (old partial credentials)
-      const badSession = statusCode === 405 || statusCode === 500 || statusCode === 411
-      if (badSession || !everConnected) {
+      // 500 / 411 = credenciales corruptas → borrar y empezar de cero
+      // 405 = rechazo de red/IP por WhatsApp → NO borrar sesión, solo reintentar
+      const corruptSession = statusCode === 500 || statusCode === 411
+      if (corruptSession) {
         await clearAuthState()
       }
 
@@ -79,8 +84,11 @@ export async function initWhatsApp(broadcastSSE) {
 
       if (!isLoggedOut) {
         if (reconnectAttempts < MAX_RECONNECTS) {
+          // Backoff exponencial: 3s, 6s, 12s, 24s… hasta 60s máx
+          const delay = Math.min(3000 * Math.pow(2, reconnectAttempts), 60000)
           reconnectAttempts++
-          await new Promise(r => setTimeout(r, 3000))
+          console.log(`[WA] Reintentando en ${delay / 1000}s... (intento ${reconnectAttempts}/${MAX_RECONNECTS})`)
+          await new Promise(r => setTimeout(r, delay))
           initWhatsApp(broadcastSSE)
         } else {
           console.error('[WA] Máximo de reconexiones alcanzado. Reinicia el servicio.')
